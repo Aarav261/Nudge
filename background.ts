@@ -4,6 +4,8 @@
 // scripts send messages here; every state change is persisted and broadcast
 // to all tabs so the compose popup stays in sync (cross-tab accumulation).
 
+import iconDataUri from "data-base64:~assets/icon.png"
+
 import type {
   BackgroundToContent,
   ContentToBackground
@@ -54,6 +56,30 @@ function makeSnippet(
   }
 }
 
+const norm = (s: string) => s.trim().toLowerCase()
+
+/**
+ * True when this text is already represented — either it's the locked contact
+ * itself (don't add the name/email/handle you're reaching out to as "context")
+ * or an identical snippet was already collected.
+ */
+function isDuplicate(session: NudgeSession, text: string): boolean {
+  const t = norm(text)
+  if (!t) return true
+  if (session.contact && norm(session.contact.text) === t) return true
+  return session.context.some((c) => norm(c.text) === t)
+}
+
+/** Append a snippet unless it duplicates the contact or an existing one. */
+function addContext(session: NudgeSession, snippet: ContextSnippet): NudgeSession {
+  if (isDuplicate(session, snippet.text)) return session
+  return {
+    ...session,
+    context: [...session.context, snippet],
+    status: session.status === "composing" ? "composing" : "context_adding"
+  }
+}
+
 /**
  * Apply one message to the session. Pure-ish reducer: returns the next
  * session. The state machine lives entirely here.
@@ -68,15 +94,8 @@ function reduce(
       // While locked, any highlight becomes accumulated context rather than a
       // new contact. This is the "context mode" half of the state machine.
       if (session.locked) {
-        const snippet = makeSnippet(msg.contact.text, sender)
-        if (!snippet.text) return session
-        return {
-          ...session,
-          context: [...session.context, snippet],
-          // Don't yank the user out of composing; only nudge idle→context_adding.
-          status:
-            session.status === "composing" ? "composing" : "context_adding"
-        }
+        // Dedupe: ignore re-highlights of the contact itself or known snippets.
+        return addContext(session, makeSnippet(msg.contact.text, sender))
       }
       // Unlocked: a fresh detection. Anchor the popup and offer to start.
       return {
@@ -101,15 +120,14 @@ function reduce(
       }
     }
 
-    case "ADD_CONTEXT": {
-      const snippet = makeSnippet(msg.text, sender)
-      if (!snippet.text) return session
+    case "ADD_CONTEXT":
+      return addContext(session, makeSnippet(msg.text, sender))
+
+    case "REMOVE_CONTEXT":
       return {
         ...session,
-        context: [...session.context, snippet],
-        status: session.status === "composing" ? "composing" : "context_adding"
+        context: session.context.filter((_, i) => i !== msg.index)
       }
-    }
 
     case "START_COMPOSE":
       if (!session.contact) return session
@@ -159,3 +177,80 @@ chrome.runtime.onMessage.addListener((msg: ContentToBackground, sender, sendResp
 chrome.runtime.onStartup.addListener(() => {
   void saveSession(emptySession())
 })
+
+// ---------------------------------------------------------------------------
+// Toolbar icon state: colored where Nudge can act, greyed out where it can't.
+// Nudge's content scripts only run on https:// pages, so anywhere else (http,
+// chrome://, file://, the New Tab page, the web store) we have no access and
+// the icon is desaturated to signal that.
+// ---------------------------------------------------------------------------
+
+const ICON_SIZES = [16, 32, 48, 128]
+const ACCESS_RE = /^https:\/\//i
+
+let iconCache: {
+  color: Record<number, ImageData>
+  grey: Record<number, ImageData>
+} | null = null
+
+/** Decode the logo once and pre-render both color and greyscale ImageData. */
+async function getIcons() {
+  if (iconCache) return iconCache
+  const bitmap = await createImageBitmap(await (await fetch(iconDataUri)).blob())
+  const color: Record<number, ImageData> = {}
+  const grey: Record<number, ImageData> = {}
+
+  for (const size of ICON_SIZES) {
+    const canvas = new OffscreenCanvas(size, size)
+    const ctx = canvas.getContext("2d")!
+    ctx.clearRect(0, 0, size, size)
+    ctx.drawImage(bitmap, 0, 0, size, size)
+
+    color[size] = ctx.getImageData(0, 0, size, size)
+
+    const g = ctx.getImageData(0, 0, size, size)
+    const d = g.data
+    for (let i = 0; i < d.length; i += 4) {
+      const lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]
+      d[i] = d[i + 1] = d[i + 2] = lum
+      d[i + 3] = Math.round(d[i + 3] * 0.55) // fade it to read as "disabled"
+    }
+    grey[size] = g
+  }
+
+  iconCache = { color, grey }
+  return iconCache
+}
+
+async function updateActionIcon(tabId: number, url?: string) {
+  try {
+    const { color, grey } = await getIcons()
+    const hasAccess = !!url && ACCESS_RE.test(url)
+    await chrome.action.setIcon({
+      tabId,
+      imageData: hasAccess ? color : grey
+    })
+  } catch {
+    // Tab closed mid-update, or OffscreenCanvas unsupported — ignore.
+  }
+}
+
+// Re-evaluate whenever the active tab changes or a tab navigates.
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  const tab = await chrome.tabs.get(tabId).catch(() => null)
+  if (tab) void updateActionIcon(tabId, tab.url)
+})
+
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  if (info.status === "complete" || info.url) void updateActionIcon(tabId, tab.url)
+})
+
+// Paint the correct state for already-open tabs on install/startup.
+async function refreshAllTabs() {
+  const tabs = await chrome.tabs.query({})
+  for (const tab of tabs) {
+    if (tab.id != null) void updateActionIcon(tab.id, tab.url)
+  }
+}
+chrome.runtime.onInstalled.addListener(() => void refreshAllTabs())
+chrome.runtime.onStartup.addListener(() => void refreshAllTabs())

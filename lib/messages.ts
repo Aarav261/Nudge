@@ -10,6 +10,7 @@ export type ContentToBackground =
   | { type: "HIGHLIGHT_DETECTED"; contact: ContactInfo; position: ScreenPosition }
   | { type: "LOCK_CONTACT" }
   | { type: "ADD_CONTEXT"; text: string }
+  | { type: "REMOVE_CONTEXT"; index: number }
   | { type: "START_COMPOSE" }
   | { type: "UPDATE_DRAFT"; draft: string }
   | { type: "SEND" }

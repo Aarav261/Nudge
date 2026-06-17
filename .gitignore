@@ -31,3 +31,8 @@ dist/
 
 # typescript
 *.tsbuildinfo
+
+
+# LLM data
+brand_guideline.md
+HANDOFF.md
