@@ -37,7 +37,7 @@ export interface ScreenPosition {
  *   composing     → editing the draft message
  *   sent          → message sent
  *   draft_saved   → draft saved for later
- *   not_found     → locked a contact but no usable email/handle was found
+ *   not_found     → tried to send without a usable email/handle
  */
 export type ComposeStatus =
   | "idle"
@@ -60,7 +60,8 @@ export interface NudgeSession {
   locked: boolean
   /** Context accumulated across every tab while the contact is locked. */
   context: ContextSnippet[]
-  draft: string
+  /** null until edited, so an emptied draft stays empty. */
+  draft: string | null
   /** Where to anchor the popup, in page coordinates of the detecting tab. */
   position: ScreenPosition | null
   updatedAt: number
@@ -71,7 +72,7 @@ export const emptySession = (): NudgeSession => ({
   contact: null,
   locked: false,
   context: [],
-  draft: "",
+  draft: null,
   position: null,
   updatedAt: Date.now()
 })

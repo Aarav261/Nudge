@@ -58,6 +58,9 @@ function makeSnippet(
 
 const norm = (s: string) => s.trim().toLowerCase()
 
+const isFinished = (s: NudgeSession) =>
+  s.status === "sent" || s.status === "draft_saved"
+
 /**
  * True when this text is already represented — either it's the locked contact
  * itself (don't add the name/email/handle you're reaching out to as "context")
@@ -94,6 +97,8 @@ function reduce(
       // While locked, any highlight becomes accumulated context rather than a
       // new contact. This is the "context mode" half of the state machine.
       if (session.locked) {
+        // A finished outreach stays on screen until Start over or ✕.
+        if (isFinished(session)) return session
         // Dedupe: ignore re-highlights of the contact itself or known snippets.
         return addContext(session, makeSnippet(msg.contact.text, sender))
       }
@@ -106,19 +111,9 @@ function reduce(
       }
     }
 
-    case "LOCK_CONTACT": {
+    case "LOCK_CONTACT":
       if (!session.contact) return session
-      const usable =
-        session.contact.type === "email" ||
-        session.contact.type === "linkedin" ||
-        session.contact.type === "twitter" ||
-        session.contact.type === "phone"
-      return {
-        ...session,
-        locked: true,
-        status: usable ? "context_adding" : "not_found"
-      }
-    }
+      return { ...session, locked: true, status: "context_adding" }
 
     case "ADD_CONTEXT":
       return addContext(session, makeSnippet(msg.text, sender))
@@ -136,17 +131,24 @@ function reduce(
     case "UPDATE_DRAFT":
       return { ...session, draft: msg.draft }
 
-    case "SEND":
-      return { ...session, status: "sent" }
+    case "SEND": {
+      // A name can be locked and drafted, but there's nowhere to send it yet.
+      const usable =
+        session.contact?.type === "email" ||
+        session.contact?.type === "linkedin" ||
+        session.contact?.type === "twitter" ||
+        session.contact?.type === "phone"
+      return { ...session, status: usable ? "sent" : "not_found" }
+    }
 
     case "SAVE_DRAFT":
       return { ...session, status: "draft_saved" }
 
     case "DISMISS":
-      // Hide the popup but keep a locked contact + context alive across tabs.
-      return session.locked
-        ? { ...session, status: "context_adding" }
-        : emptySession()
+      // Hide the popup but keep a locked contact + context alive across tabs;
+      // the next new highlight brings it back.
+      if (!session.locked || isFinished(session)) return emptySession()
+      return { ...session, status: "idle" }
 
     case "RESET":
       return emptySession()

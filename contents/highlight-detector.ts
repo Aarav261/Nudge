@@ -69,7 +69,11 @@ const schedule = () => {
   timer = setTimeout(handleSelection, 150)
 }
 
-document.addEventListener("mouseup", schedule)
+document.addEventListener("mouseup", (e) => {
+  // A click inside the popup isn't a new selection. Without this, text still
+  // selected on the page re-fires after ✕ or Start over and reopens the popup.
+  if ((e.target as Element).localName !== "plasmo-csui") schedule()
+})
 document.addEventListener("keyup", (e) => {
   if (e.shiftKey || e.key === "a") schedule()
 })

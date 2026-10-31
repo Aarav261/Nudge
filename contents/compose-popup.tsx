@@ -188,8 +188,16 @@ function ComposePopup() {
             <button style={primary} onClick={() => send({ type: "START_COMPOSE" })}>
               Compose ({session.context.length})
             </button>
-            <button style={secondary} onClick={() => send({ type: "RESET" })}>
-              Done
+            <button
+              style={secondary}
+              onClick={() => {
+                if (
+                  !session.context.length ||
+                  confirm("Discard this contact and the collected context?")
+                )
+                  send({ type: "RESET" })
+              }}>
+              Discard
             </button>
           </div>
         </div>
@@ -199,7 +207,7 @@ function ComposePopup() {
         <div style={col}>
           <textarea
             style={textarea}
-            value={session.draft || draftStub(session)}
+            value={session.draft ?? draftStub(session)}
             onChange={(e) => send({ type: "UPDATE_DRAFT", draft: e.target.value })}
           />
           <ContextList
@@ -234,11 +242,19 @@ function ComposePopup() {
       )}
 
       {session.status === "not_found" && (
-        <Done
-          icon="🔍"
-          msg={`No usable email or handle in "${session.contact.text}". Try highlighting their email.`}
-          onReset={() => send({ type: "RESET" })}
-        />
+        <div style={col}>
+          <p style={{ ...hint, fontSize: 13 }}>
+            🔍 {`No usable email or handle in "${session.contact.text}", so this can't be sent. You can still save it as a draft.`}
+          </p>
+          <div style={row}>
+            <button style={primary} onClick={() => send({ type: "START_COMPOSE" })}>
+              Back to draft
+            </button>
+            <button style={secondary} onClick={() => send({ type: "RESET" })}>
+              Start over
+            </button>
+          </div>
+        </div>
       )}
         </>
       )}
