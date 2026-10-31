@@ -109,7 +109,7 @@ const save = async () => {
   await highlight("some context")
   s = await save()
   assert.strictEqual(s.status, "save_failed")
-  assert.match(s.saveError, /capture token/)
+  assert.match(s.saveError, /Sign in/)
   assert.strictEqual(posts.length, 0)
 
   // A saved lead posts the token, the contact and its context.
@@ -152,7 +152,7 @@ const save = async () => {
   respond = async () => ({ status: 401, ok: false })
   s = await save()
   assert.strictEqual(s.status, "save_failed")
-  assert.match(s.saveError, /isn't valid/)
+  assert.match(s.saveError, /signed out/)
   respond = async () => {
     throw new Error("offline")
   }

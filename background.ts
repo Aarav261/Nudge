@@ -20,8 +20,8 @@ import {
 
 const SESSION_KEY = "nudge:session"
 
-const NO_TOKEN = "Add your capture token in the Nudge toolbar popup first."
-const BAD_TOKEN = "That capture token isn't valid. Add a new one in the Nudge toolbar popup."
+const NO_TOKEN = "Sign in from the Nudge toolbar popup first."
+const BAD_TOKEN = "You've been signed out. Sign in again from the Nudge toolbar popup."
 const SAVE_FAILED = "Couldn't reach Nudge. Try again."
 
 async function loadSession(): Promise<NudgeSession> {

@@ -1,53 +1,43 @@
-// Toolbar popup: holds the capture token that lets the extension save leads.
+// Toolbar popup: shows whether the extension is connected to a Nudge account.
+// Sign-in happens on the app, which hands the token to contents/app-connect.ts.
 
 import { useEffect, useState } from "react"
 
 import { APP_URL, TOKEN_KEY } from "~lib/types"
 
 function IndexPopup() {
-  const [token, setToken] = useState("")
-  const [saved, setSaved] = useState(false)
+  const [connected, setConnected] = useState(false)
 
   useEffect(() => {
     chrome.storage.local
       .get(TOKEN_KEY)
-      .then((stored) => setToken((stored[TOKEN_KEY] as string) ?? ""))
+      .then((stored) => setConnected(Boolean(stored[TOKEN_KEY])))
   }, [])
 
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const value = token.trim()
-    if (value) await chrome.storage.local.set({ [TOKEN_KEY]: value })
-    else await chrome.storage.local.remove(TOKEN_KEY)
-    setToken(value)
-    setSaved(true)
+  const signOut = async () => {
+    await chrome.storage.local.remove(TOKEN_KEY)
+    setConnected(false)
   }
 
   return (
-    <form onSubmit={save} style={shell}>
+    <div style={shell}>
       <strong style={{ fontSize: 14, color: "#36317B" }}>Nudge</strong>
-      <label htmlFor="token" style={{ color: "#555" }}>
-        Capture token
-      </label>
-      <input
-        id="token"
-        type="password"
-        autoComplete="off"
-        value={token}
-        onChange={(e) => {
-          setToken(e.target.value)
-          setSaved(false)
-        }}
-        style={input}
-      />
-      <button type="submit" style={button}>
-        Save token
-      </button>
-      {saved && <p style={{ margin: 0, color: "#555" }}>Token saved.</p>}
-      <a href={`${APP_URL}/app`} target="_blank" style={{ color: "#4741A4" }}>
-        Get a token from the Nudge app
-      </a>
-    </form>
+      {connected ? (
+        <>
+          <p style={{ margin: 0, color: "#555" }}>Signed in. Leads save to your account.</p>
+          <button type="button" onClick={signOut} style={button}>
+            Sign out
+          </button>
+        </>
+      ) : (
+        <>
+          <p style={{ margin: 0, color: "#555" }}>Sign in to save leads to your account.</p>
+          <a href={`${APP_URL}/app`} target="_blank" style={button}>
+            Sign in to Nudge
+          </a>
+        </>
+      )}
+    </div>
   )
 }
 
@@ -59,12 +49,6 @@ const shell: React.CSSProperties = {
   padding: 12,
   font: "13px/1.4 -apple-system, system-ui, sans-serif"
 }
-const input: React.CSSProperties = {
-  padding: 6,
-  border: "1px solid #4741A433",
-  borderRadius: 7,
-  font: "inherit"
-}
 const button: React.CSSProperties = {
   padding: "7px 10px",
   border: "none",
@@ -73,7 +57,9 @@ const button: React.CSSProperties = {
   color: "#fff",
   cursor: "pointer",
   fontSize: 12,
-  fontWeight: 600
+  fontWeight: 600,
+  textAlign: "center",
+  textDecoration: "none"
 }
 
 export default IndexPopup

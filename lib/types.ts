@@ -76,5 +76,5 @@ export const emptySession = (): NudgeSession => ({
 
 export const APP_URL = "https://nudge-7850d0c4.base44.app"
 
-/** The capture token, in chrome.storage.local. Set in the toolbar popup. */
+/** The capture token, in chrome.storage.local. Set by contents/app-connect.ts. */
 export const TOKEN_KEY = "nudge:token"

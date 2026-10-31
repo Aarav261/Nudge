@@ -2,7 +2,7 @@
   "name": "nudge",
   "displayName": "Nudge",
   "version": "0.0.1",
-  "description": "Most people find someone worth reaching out to every day. A speaker on an event page, a founder on a company site, a researcher whose work you just read. The intention is there. The follow-through rarely is — not because people don't want to connect, but because copying emails, switching tabs, drafting messages, and logging outreach is enough friction to kill the moment.",
+  "description": "Save the people you find on the web as leads in Nudge, right from the page.",
   "author": "Aarav",
   "scripts": {
     "dev": "plasmo dev",
