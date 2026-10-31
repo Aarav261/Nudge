@@ -25,25 +25,6 @@ const CONTACT_LABEL: Record<ContactType, string> = {
   unknown: "Selection"
 }
 
-const draftStub = (s: NudgeSession): string => {
-  // Extension point: swap this for an LLM call seeded with the locked contact
-  // and accumulated context. Kept synchronous + local for now.
-  const who = s.contact?.text ?? "there"
-  const ctx = s.context
-    .map((c) => `- ${c.text} (${c.sourceTitle || c.sourceUrl})`)
-    .join("\n")
-  return [
-    `Hi ${who},`,
-    "",
-    "I came across your work and wanted to reach out.",
-    ctx ? `\nContext I gathered:\n${ctx}` : "",
-    "",
-    "Best,"
-  ]
-    .filter(Boolean)
-    .join("\n")
-}
-
 function ComposePopup() {
   const [session, setSession] = useState<NudgeSession>(emptySession)
   // User-chosen position (viewport coords). Only set by dragging once locked;
@@ -162,14 +143,8 @@ function ComposePopup() {
             <button style={primary} onClick={() => send({ type: "LOCK_CONTACT" })}>
               Lock & add context
             </button>
-            <button
-              style={secondary}
-              onClick={() =>
-                send({ type: "LOCK_CONTACT" }).then(() =>
-                  send({ type: "START_COMPOSE" })
-                )
-              }>
-              Compose now
+            <button style={secondary} onClick={() => send({ type: "SAVE_LEAD" })}>
+              Save now
             </button>
           </div>
         </div>
@@ -185,8 +160,8 @@ function ComposePopup() {
             onRemove={(i) => send({ type: "REMOVE_CONTEXT", index: i })}
           />
           <div style={row}>
-            <button style={primary} onClick={() => send({ type: "START_COMPOSE" })}>
-              Compose ({session.context.length})
+            <button style={primary} onClick={() => send({ type: "SAVE_LEAD" })}>
+              Save to Nudge ({session.context.length})
             </button>
             <button
               style={secondary}
@@ -203,52 +178,25 @@ function ComposePopup() {
         </div>
       )}
 
-      {session.status === "composing" && (
+      {session.status === "saving" && <p style={hint}>Saving to Nudge…</p>}
+
+      {session.status === "saved" && (
         <div style={col}>
-          <textarea
-            style={textarea}
-            value={session.draft ?? draftStub(session)}
-            onChange={(e) => send({ type: "UPDATE_DRAFT", draft: e.target.value })}
-          />
-          <ContextList
-            session={session}
-            onRemove={(i) => send({ type: "REMOVE_CONTEXT", index: i })}
-          />
-          <div style={row}>
-            <button style={primary} onClick={() => send({ type: "SEND" })}>
-              Send
-            </button>
-            <button style={secondary} onClick={() => send({ type: "SAVE_DRAFT" })}>
-              Save draft
-            </button>
-          </div>
+          <p style={{ ...hint, fontSize: 13 }}>✅ Saved to Nudge.</p>
+          <button style={primary} onClick={() => send({ type: "RESET" })}>
+            Start over
+          </button>
         </div>
       )}
 
-      {session.status === "sent" && (
-        <Done
-          icon="✅"
-          msg="Sent. Outreach logged."
-          onReset={() => send({ type: "RESET" })}
-        />
-      )}
-
-      {session.status === "draft_saved" && (
-        <Done
-          icon="💾"
-          msg="Draft saved for later."
-          onReset={() => send({ type: "RESET" })}
-        />
-      )}
-
-      {session.status === "not_found" && (
+      {session.status === "save_failed" && (
         <div style={col}>
-          <p style={{ ...hint, fontSize: 13 }}>
-            🔍 {`No usable email or handle in "${session.contact.text}", so this can't be sent. You can still save it as a draft.`}
+          <p role="alert" style={{ ...hint, fontSize: 13 }}>
+            {session.saveError}
           </p>
           <div style={row}>
-            <button style={primary} onClick={() => send({ type: "START_COMPOSE" })}>
-              Back to draft
+            <button style={primary} onClick={() => send({ type: "SAVE_LEAD" })}>
+              Try again
             </button>
             <button style={secondary} onClick={() => send({ type: "RESET" })}>
               Start over
@@ -288,27 +236,6 @@ function ContextList({
         </li>
       ))}
     </ul>
-  )
-}
-
-function Done({
-  icon,
-  msg,
-  onReset
-}: {
-  icon: string
-  msg: string
-  onReset: () => void
-}) {
-  return (
-    <div style={col}>
-      <p style={{ ...hint, fontSize: 13 }}>
-        {icon} {msg}
-      </p>
-      <button style={primary} onClick={onReset}>
-        Start over
-      </button>
-    </div>
   )
 }
 
@@ -392,17 +319,6 @@ const lockPill: React.CSSProperties = {
   background: INDIGO_100,
   fontSize: 11,
   color: INDIGO_700
-}
-const textarea: React.CSSProperties = {
-  width: "100%",
-  minHeight: 110,
-  resize: "vertical",
-  border: `1px solid ${INDIGO}33`,
-  borderRadius: 7,
-  padding: 8,
-  background: "rgba(255, 255, 255, 0.6)",
-  font: "13px/1.45 ui-monospace, monospace",
-  boxSizing: "border-box"
 }
 const ctxList: React.CSSProperties = {
   margin: 0,

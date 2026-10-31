@@ -11,12 +11,18 @@ import type {
   ContentToBackground
 } from "~lib/messages"
 import {
+  APP_URL,
   emptySession,
+  TOKEN_KEY,
   type ContextSnippet,
   type NudgeSession
 } from "~lib/types"
 
 const SESSION_KEY = "nudge:session"
+
+const NO_TOKEN = "Add your capture token in the Nudge toolbar popup first."
+const BAD_TOKEN = "That capture token isn't valid. Add a new one in the Nudge toolbar popup."
+const SAVE_FAILED = "Couldn't reach Nudge. Try again."
 
 async function loadSession(): Promise<NudgeSession> {
   const stored = await chrome.storage.session.get(SESSION_KEY)
@@ -59,7 +65,7 @@ function makeSnippet(
 const norm = (s: string) => s.trim().toLowerCase()
 
 const isFinished = (s: NudgeSession) =>
-  s.status === "sent" || s.status === "draft_saved"
+  s.status === "saving" || s.status === "saved"
 
 /**
  * True when this text is already represented — either it's the locked contact
@@ -79,7 +85,7 @@ function addContext(session: NudgeSession, snippet: ContextSnippet): NudgeSessio
   return {
     ...session,
     context: [...session.context, snippet],
-    status: session.status === "composing" ? "composing" : "context_adding"
+    status: "context_adding"
   }
 }
 
@@ -124,27 +130,13 @@ function reduce(
         context: session.context.filter((_, i) => i !== msg.index)
       }
 
-    case "START_COMPOSE":
-      if (!session.contact) return session
-      return { ...session, status: "composing" }
-
-    case "UPDATE_DRAFT":
-      return { ...session, draft: msg.draft }
-
-    case "SEND": {
-      // A name can be locked and drafted, but there's nowhere to send it yet.
-      const usable =
-        session.contact?.type === "email" ||
-        session.contact?.type === "linkedin" ||
-        session.contact?.type === "twitter" ||
-        session.contact?.type === "phone"
-      return { ...session, status: usable ? "sent" : "not_found" }
-    }
-
-    case "SAVE_DRAFT":
-      return { ...session, status: "draft_saved" }
+    case "SAVE_LEAD":
+      if (!session.contact || isFinished(session)) return session
+      return { ...session, locked: true, status: "saving", saveError: null }
 
     case "DISMISS":
+      // A save in flight still reports back, so the result can't be lost.
+      if (session.status === "saving") return session
       // Hide the popup but keep a locked contact + context alive across tabs;
       // the next new highlight brings it back.
       if (!session.locked || isFinished(session)) return emptySession()
@@ -161,6 +153,47 @@ function reduce(
   }
 }
 
+/** Post the lead to the app. Returns what to show the user, or null if saved. */
+async function postLead(session: NudgeSession): Promise<string | null> {
+  const stored = await chrome.storage.local.get(TOKEN_KEY)
+  const token = stored[TOKEN_KEY] as string | undefined
+  if (!token) return NO_TOKEN
+
+  try {
+    const response = await fetch(`${APP_URL}/api/capture-lead`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      // The slices match the route's limits, so a long selection still saves.
+      body: JSON.stringify({
+        contact: {
+          text: session.contact.text.slice(0, 500),
+          type: session.contact.type
+        },
+        snippets: session.context.slice(0, 50).map((c) => ({
+          text: c.text.slice(0, 5000),
+          source_url: c.sourceUrl.slice(0, 2048),
+          source_title: c.sourceTitle.slice(0, 500),
+          captured_at: new Date(c.capturedAt).toISOString()
+        }))
+      }),
+      signal: AbortSignal.timeout(15000)
+    })
+    if (response.status === 401) return BAD_TOKEN
+    return response.ok ? null : SAVE_FAILED
+  } catch {
+    return SAVE_FAILED
+  }
+}
+
+async function finishSave(session: NudgeSession): Promise<void> {
+  const saveError = await postLead(session)
+  const status = saveError ? "save_failed" : "saved"
+  await broadcast(await saveSession({ ...session, status, saveError }))
+}
+
 chrome.runtime.onMessage.addListener((msg: ContentToBackground, sender, sendResponse) => {
   ;(async () => {
     const current = await loadSession()
@@ -169,6 +202,7 @@ chrome.runtime.onMessage.addListener((msg: ContentToBackground, sender, sendResp
       await saveSession(next)
       // GET_STATE is a pure read; everything else may have changed state.
       if (msg.type !== "GET_STATE") await broadcast(next)
+      if (msg.type === "SAVE_LEAD") void finishSave(next)
     }
     sendResponse(next)
   })()

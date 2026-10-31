@@ -29,24 +29,22 @@ export interface ScreenPosition {
 }
 
 /**
- * The six UI states the compose popup can render, plus `idle` (no popup).
+ * The UI states the popup can render, plus `idle` (no popup).
  *
  *   idle          → nothing detected, no popup shown
  *   detected      → a contact was highlighted; offer to start
  *   context_adding→ contact locked; accumulating context across tabs
- *   composing     → editing the draft message
- *   sent          → message sent
- *   draft_saved   → draft saved for later
- *   not_found     → tried to send without a usable email/handle
+ *   saving        → posting the lead to the Nudge app
+ *   saved         → the lead and its context are in the app
+ *   save_failed   → the post failed; `saveError` says why
  */
-export type ComposeStatus =
+export type SaveStatus =
   | "idle"
   | "detected"
   | "context_adding"
-  | "composing"
-  | "sent"
-  | "draft_saved"
-  | "not_found"
+  | "saving"
+  | "saved"
+  | "save_failed"
 
 /**
  * The single source of truth, persisted in chrome.storage.session (owned by
@@ -54,14 +52,13 @@ export type ComposeStatus =
  * browser session ends.
  */
 export interface NudgeSession {
-  status: ComposeStatus
+  status: SaveStatus
   contact: ContactInfo | null
   /** Once locked, new highlights add context instead of replacing the contact. */
   locked: boolean
   /** Context accumulated across every tab while the contact is locked. */
   context: ContextSnippet[]
-  /** null until edited, so an emptied draft stays empty. */
-  draft: string | null
+  saveError: string | null
   /** Where to anchor the popup, in page coordinates of the detecting tab. */
   position: ScreenPosition | null
   updatedAt: number
@@ -72,7 +69,12 @@ export const emptySession = (): NudgeSession => ({
   contact: null,
   locked: false,
   context: [],
-  draft: null,
+  saveError: null,
   position: null,
   updatedAt: Date.now()
 })
+
+export const APP_URL = "https://nudge-7850d0c4.base44.app"
+
+/** The capture token, in chrome.storage.local. Set in the toolbar popup. */
+export const TOKEN_KEY = "nudge:token"

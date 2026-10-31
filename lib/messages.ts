@@ -11,10 +11,7 @@ export type ContentToBackground =
   | { type: "LOCK_CONTACT" }
   | { type: "ADD_CONTEXT"; text: string }
   | { type: "REMOVE_CONTEXT"; index: number }
-  | { type: "START_COMPOSE" }
-  | { type: "UPDATE_DRAFT"; draft: string }
-  | { type: "SEND" }
-  | { type: "SAVE_DRAFT" }
+  | { type: "SAVE_LEAD" }
   | { type: "DISMISS" }
   | { type: "RESET" }
   | { type: "GET_STATE" }

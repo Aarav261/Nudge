@@ -47,14 +47,22 @@ for (const [text, type] of Object.entries(expected))
 
 // ---- state machine ----
 const store = {}
+const local = {}
 let listener
 const noop = { addListener() {} }
+const posts = []
+let respond = async () => ({ status: 200, ok: true })
+globalThis.fetch = async (url, init) => {
+  posts.push({ url, init, body: JSON.parse(init.body) })
+  return respond()
+}
 globalThis.chrome = {
   storage: {
     session: {
       get: async (k) => ({ [k]: store[k] }),
       set: async (o) => void Object.assign(store, o)
-    }
+    },
+    local: { get: async (k) => ({ [k]: local[k] }) }
   },
   tabs: { query: async () => [], onActivated: noop, onUpdated: noop },
   runtime: {
@@ -81,19 +89,93 @@ const lock = async (text, type) => {
   await highlight(text, type)
   return send({ type: "LOCK_CONTACT" })
 }
+// Saving finishes after the message is answered, so wait for the result.
+const settled = async () => {
+  for (;;) {
+    const s = await send({ type: "GET_STATE" })
+    if (s.status !== "saving") return s
+    await new Promise((resolve) => setTimeout(resolve))
+  }
+}
+const save = async () => {
+  await send({ type: "SAVE_LEAD" })
+  return settled()
+}
 
 ;(async () => {
-  // A name locks and gathers context, and only fails at send.
+  // No token yet: nothing is posted and the popup says what to do.
   let s = await lock("Jane Doe", "name")
   assert.strictEqual(s.status, "context_adding")
   await highlight("some context")
-  await send({ type: "START_COMPOSE" })
-  s = await send({ type: "SEND" })
-  assert.strictEqual(s.status, "not_found")
-  s = await send({ type: "START_COMPOSE" })
-  assert.strictEqual(s.status, "composing")
-  s = await send({ type: "SAVE_DRAFT" })
-  assert.strictEqual(s.status, "draft_saved")
+  s = await save()
+  assert.strictEqual(s.status, "save_failed")
+  assert.match(s.saveError, /capture token/)
+  assert.strictEqual(posts.length, 0)
+
+  // A saved lead posts the token, the contact and its context.
+  local[types.TOKEN_KEY] = "nudge_test"
+  s = await save()
+  assert.strictEqual(s.status, "saved")
+  assert.strictEqual(s.saveError, null)
+  assert.strictEqual(posts.length, 1)
+  assert.strictEqual(posts[0].url, `${types.APP_URL}/api/capture-lead`)
+  assert.strictEqual(posts[0].init.headers.Authorization, "Bearer nudge_test")
+  assert.deepStrictEqual(posts[0].body.contact, { text: "Jane Doe", type: "name" })
+  assert.strictEqual(posts[0].body.snippets[0].text, "some context")
+  assert.strictEqual(posts[0].body.snippets[0].source_url, "https://a.b")
+  assert.ok(!isNaN(Date.parse(posts[0].body.snippets[0].captured_at)))
+
+  // A saved session ignores highlights and a second save, and ✕ clears it.
+  s = await highlight("later")
+  assert.strictEqual(s.context.length, 1)
+  await send({ type: "SAVE_LEAD" })
+  assert.strictEqual(posts.length, 1)
+  s = await send({ type: "DISMISS" })
+  assert.strictEqual(s.contact, null)
+
+  // Saving straight from a detection locks the contact first.
+  await send({ type: "RESET" })
+  await highlight("jane@acme.com", "email")
+  s = await save()
+  assert.strictEqual(s.status, "saved")
+  assert.ok(s.locked)
+
+  // A long selection is cut to the route's limits.
+  await lock("jane@acme.com", "email")
+  await highlight("x".repeat(6000))
+  await save()
+  assert.strictEqual(posts.at(-1).body.snippets[0].text.length, 5000)
+
+  // A rejected token and a network failure both keep the lead for a retry.
+  await lock("jane@acme.com", "email")
+  await highlight("keep me")
+  respond = async () => ({ status: 401, ok: false })
+  s = await save()
+  assert.strictEqual(s.status, "save_failed")
+  assert.match(s.saveError, /isn't valid/)
+  respond = async () => {
+    throw new Error("offline")
+  }
+  s = await save()
+  assert.match(s.saveError, /Couldn't reach/)
+  assert.strictEqual(s.context.length, 1)
+  respond = async () => ({ status: 200, ok: true })
+  s = await save()
+  assert.strictEqual(s.status, "saved")
+
+  // ✕ does nothing while a save is in flight.
+  await lock("jane@acme.com", "email")
+  let release
+  respond = () =>
+    new Promise((resolve) => (release = () => resolve({ status: 200, ok: true })))
+  s = await send({ type: "SAVE_LEAD" })
+  assert.strictEqual(s.status, "saving")
+  s = await send({ type: "DISMISS" })
+  assert.strictEqual(s.status, "saving")
+  release()
+  s = await settled()
+  assert.strictEqual(s.status, "saved")
+  respond = async () => ({ status: 200, ok: true })
 
   // ✕ hides a locked session, and a new highlight brings it back intact.
   s = await lock("jane@acme.com", "email")
@@ -106,21 +188,6 @@ const lock = async (text, type) => {
   s = await highlight("second")
   assert.strictEqual(s.status, "context_adding")
   assert.strictEqual(s.context.length, 2)
-
-  // A sent session ignores highlights, and ✕ clears it.
-  await send({ type: "START_COMPOSE" })
-  s = await send({ type: "SEND" })
-  assert.strictEqual(s.status, "sent")
-  s = await highlight("later")
-  assert.strictEqual(s.status, "sent")
-  assert.strictEqual(s.context.length, 2)
-  s = await send({ type: "DISMISS" })
-  assert.strictEqual(s.contact, null)
-
-  // An emptied draft stays empty rather than falling back to the template.
-  await lock("jane@acme.com", "email")
-  s = await send({ type: "UPDATE_DRAFT", draft: "" })
-  assert.strictEqual(s.draft ?? "template", "")
 
   console.log("ok")
 })().catch((err) => {
